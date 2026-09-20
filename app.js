@@ -1,5 +1,116 @@
 const app = document.querySelector('#app')
 if ('scrollRestoration' in history) history.scrollRestoration = 'manual'
+
+// ---- Server-side mirror of the canvas state ----
+// Folders, card positions, edges, hidden/locked cards and quick phrases live in
+// localStorage because every gesture reads them synchronously. They are mirrored
+// to $DSH_HOME/synapse/state.json so a layout survives a different browser, a
+// different origin (localhost vs 127.0.0.1) or cleared site data. The server is
+// the source of truth once it has data; the first run after upgrading seeds it
+// from whatever this browser already has.
+const SYNAPSE_STATE_PREFIX = 'dsh-synapse:'
+const SYNAPSE_STATE_ENDPOINT = '/synapse/api/state'
+const SYNAPSE_STATE_SAVE_MS = 800
+function collectSynapseState() {
+  const result = {}
+  try {
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index)
+      if (key !== null && key.startsWith(SYNAPSE_STATE_PREFIX)) {
+        const value = localStorage.getItem(key)
+        if (value !== null) result[key] = value
+      }
+    }
+  } catch { /* storage disabled (private mode) */ }
+  return result
+}
+function applySynapseState(data) {
+  if (data === null || typeof data !== 'object') return
+  try {
+    // Mirror exactly: drop Synapse keys the server does not have, so the local
+    // copy converges instead of re-triggering the adopt-and-reload below.
+    const wanted = new Set(Object.keys(data))
+    const stale = []
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index)
+      if (key !== null && key.startsWith(SYNAPSE_STATE_PREFIX) && !wanted.has(key)) stale.push(key)
+    }
+    for (const key of stale) localStorage.removeItem(key)
+    for (const [key, value] of Object.entries(data)) {
+      if (key.startsWith(SYNAPSE_STATE_PREFIX) && typeof value === 'string') localStorage.setItem(key, value)
+    }
+  } catch { /* storage disabled */ }
+}
+function canonicalSynapseState(data) {
+  return JSON.stringify(Object.keys(data).sort().map(key => [key, data[key]]))
+}
+function pushSynapseState() {
+  const data = collectSynapseState()
+  // Never clobber a populated server with this browser's empty state: a fresh
+  // browser or a cleared cache must adopt the server, not erase it.
+  if (serverHadData && Object.keys(data).length === 0) return Promise.resolve()
+  return fetch(SYNAPSE_STATE_ENDPOINT, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ version: 1, data })
+  }).catch(() => {})
+}
+let serverSyncDone = false
+let serverHadData = false
+let pendingServerSave = false
+let serverStateTimer = 0
+function scheduleServerStateSave() {
+  // Defer writes until the initial server sync resolved, so a load-time
+  // `removeItem` of a legacy key cannot push an empty state first.
+  if (!serverSyncDone) { pendingServerSave = true; return }
+  if (serverStateTimer !== 0) return
+  serverStateTimer = window.setTimeout(() => {
+    serverStateTimer = 0
+    void pushSynapseState()
+  }, SYNAPSE_STATE_SAVE_MS)
+}
+function finishServerSync(hadData) {
+  serverSyncDone = true
+  serverHadData = hadData
+  if (pendingServerSave) {
+    pendingServerSave = false
+    scheduleServerStateSave()
+  }
+}
+try {
+  const rawSetItem = Storage.prototype.setItem
+  const rawRemoveItem = Storage.prototype.removeItem
+  Storage.prototype.setItem = function (key, value) {
+    rawSetItem.call(this, key, value)
+    if (typeof key === 'string' && key.startsWith(SYNAPSE_STATE_PREFIX)) scheduleServerStateSave()
+  }
+  Storage.prototype.removeItem = function (key) {
+    rawRemoveItem.call(this, key)
+    if (typeof key === 'string' && key.startsWith(SYNAPSE_STATE_PREFIX)) scheduleServerStateSave()
+  }
+} catch { /* ignore */ }
+async function syncServerState() {
+  let record = null
+  try {
+    const response = await fetch(SYNAPSE_STATE_ENDPOINT, { cache: 'no-store' })
+    if (!response.ok) { finishServerSync(false); return }
+    record = (await response.json())?.state ?? null
+  } catch { finishServerSync(false); return }
+  const remote = record !== null && typeof record === 'object' && record.data !== null && typeof record.data === 'object' ? record.data : null
+  if (remote !== null && Object.keys(remote).length > 0) {
+    if (canonicalSynapseState(remote) !== canonicalSynapseState(collectSynapseState())) {
+      applySynapseState(remote)
+      // Reload only when the local copy really changed; otherwise a browser with
+      // storage disabled would reload forever.
+      if (canonicalSynapseState(remote) === canonicalSynapseState(collectSynapseState())) { location.reload(); return }
+    }
+    finishServerSync(true)
+    return
+  }
+  finishServerSync(false)
+  if (Object.keys(collectSynapseState()).length > 0) void pushSynapseState()
+}
+
 const LEGACY_CARD_POSITIONS_KEY = 'dsh-synapse:card-positions'
 const CARD_POSITIONS_KEY = 'dsh-synapse:card-positions:v3'
 const COLLAPSED_CARDS_KEY = 'dsh-synapse:collapsed-cards:v1'
@@ -3394,3 +3505,4 @@ async function pollProjection() {
   } finally { polling = false }
 }
 window.setInterval(() => { void pollProjection() }, 1_000)
+void syncServerState()

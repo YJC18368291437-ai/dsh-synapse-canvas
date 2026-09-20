@@ -742,9 +742,60 @@ function page() {
   return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Synapse for DSH</title><link rel="stylesheet" href="/synapse/styles.css"></head><body><div id="app"></div><script src="/synapse/app.js"></script></body></html>`
 }
 
+/**
+ * Canvas UI state (folders, card positions, edges, hidden/locked cards, quick
+ * phrases, …). The Synapse client keeps this in `localStorage` because every
+ * gesture reads it synchronously; this store mirrors it to a file under
+ * `$DSH_HOME/synapse/` so the layout survives a different browser, a different
+ * origin (`localhost` vs `127.0.0.1`) or cleared site data.
+ */
+export class CanvasStateStore {
+  constructor(file) {
+    this.file = typeof file === 'string' && file.length > 0 ? file : null
+  }
+
+  async read() {
+    if (this.file === null) return null
+    try {
+      const parsed = JSON.parse(await readFile(this.file, 'utf8'))
+      return parsed !== null && typeof parsed === 'object' ? parsed : null
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw new Error(`synapse: cannot read ${this.file}: ${error.message}`)
+      return null
+    }
+  }
+
+  async write(payload) {
+    if (this.file === null) throw new InputError('未配置画布状态存储路径')
+    const data = payload?.data
+    if (data === null || typeof data !== 'object' || Array.isArray(data)) throw new InputError('画布状态格式不正确')
+    const clean = {}
+    let count = 0
+    for (const [key, value] of Object.entries(data)) {
+      // Only Synapse's own `dsh-synapse:*` keys are mirrored; anything else in
+      // the payload is ignored rather than trusted.
+      if (typeof key !== 'string' || !key.startsWith('dsh-synapse:') || typeof value !== 'string') continue
+      if (value.length > 4_000_000) throw new InputError('画布状态单项过大')
+      clean[key] = value
+      count += 1
+      if (count > 200) throw new InputError('画布状态项过多')
+    }
+    const record = { version: 1, savedAt: Date.now(), data: clean }
+    await mkdir(dirname(this.file), { recursive: true })
+    const temporaryFile = `${this.file}.${process.pid}.tmp`
+    await writeFile(temporaryFile, `${JSON.stringify(record)}\n`, 'utf8')
+    await rename(temporaryFile, this.file)
+    return record
+  }
+}
+
 /** Mount Synapse routes on the existing DSH Web Server. */
 export function apply(ctx, config) {
   const store = new WorkspaceStore(config?.dataFile)
+  const stateFile = typeof config?.stateFile === 'string' && config.stateFile.trim() !== ''
+    ? config.stateFile.trim()
+    : (typeof config?.dataFile === 'string' && config.dataFile.length > 0 ? join(dirname(config.dataFile), 'state.json') : null)
+  const canvasState = new CanvasStateStore(stateFile)
   const exportDir = typeof config?.exportDir === 'string' && config.exportDir.trim() !== '' ? config.exportDir.trim() : null
   const autoProjection = config?.autoProjection !== false
   const projectionWorkspaceTitle = typeof config?.projectionWorkspaceTitle === 'string' && config.projectionWorkspaceTitle.trim() !== ''
@@ -797,6 +848,12 @@ export function apply(ctx, config) {
       if (!trustedHosts.has(hostname)) return sendJson(res, 403, { error: '不被信任的 Host' })
       const path = new URL(req.url ?? '/', 'http://dsh.local').pathname
       if (path === '/synapse/api/reset' && req.method === 'POST') return sendJson(res, 200, await store.clearLegacy(ctx.sessions.list()))
+      if (path === '/synapse/api/state') {
+        if (req.method === 'GET') return sendJson(res, 200, { state: await canvasState.read() })
+        if (req.method === 'PUT' || req.method === 'POST') {
+          return sendJson(res, 200, { state: await canvasState.write(await readJson(req, 8 * 1024 * 1024)) })
+        }
+      }
       if (path === '/synapse/api/workspaces') {
         if (req.method === 'GET') return sendJson(res, 200, { workspaces: await store.list() })
         if (req.method === 'POST') return sendJson(res, 201, { workspace: await store.create((await readJson(req)).title) })

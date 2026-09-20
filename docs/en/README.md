@@ -95,6 +95,7 @@ The plugin is inserted through the profile's `cordis.patch.yml`. Override it in 
 | Key | Default | Description |
 |---|---|---|
 | `dataFile` | `$DSH_HOME/synapse/workspaces.json` | Canvas metadata persistence file |
+| `stateFile` | `$DSH_HOME/synapse/state.json` | Canvas UI-state mirror (folders, card positions, edges, hidden/locked cards, quick phrases); defaults to the `dataFile` directory when omitted |
 | `autoProjection` | `true` | Automatically project committed DSH session events into cards |
 | `projectionWorkspaceTitle` | `DSH 任务` | Title of the automatically projected workspace |
 | `trustedHosts` | `[]` | Extra host or `host:port` values accepted by the `/synapse` Host check; `localhost` and `127.0.0.1` are always accepted |
@@ -134,6 +135,7 @@ A leftover `allowBuilds` key in `pnpm-workspace.yaml` is harmless and may also b
 
 - DSH session logs own the actual conversation content.
 - Synapse `workspaces.json` stores only canvas metadata, layout, and branch anchors.
+- Canvas UI state (folders, card positions, edges, hidden/locked cards, quick phrases) is cached in browser `localStorage` and mirrored to `state.json`. The layout therefore survives another browser, another origin (`localhost` vs `127.0.0.1`) or cleared site data; after upgrading, the first browser to load seeds the file from its old data, and an empty browser never overwrites a populated file.
 - Deleting `workspaces.json` loses canvas layout, never DSH sessions.
 - Projected message text is capped at 8000 characters; longer card text ends with “—…（详情查看全文）”, while the full content remains available in conversation details.
 - The plugin starts no second Web server and creates no second agent system.

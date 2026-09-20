@@ -95,6 +95,7 @@ corepack pnpm dsh web --port 0
 | 键 | 默认值 | 说明 |
 |---|---|---|
 | `dataFile` | `$DSH_HOME/synapse/workspaces.json` | 画布元数据持久化文件 |
+| `stateFile` | `$DSH_HOME/synapse/state.json` | 画布界面状态镜像文件（文件夹、卡片位置、连线、隐藏/锁定卡片、快捷短语）；省略时默认放在 `dataFile` 同目录 |
 | `autoProjection` | `true` | 自动将已提交的 DSH 会话事件投影为卡片 |
 | `projectionWorkspaceTitle` | `DSH 任务` | 自动投影工作区的标题 |
 | `trustedHosts` | `[]` | `/synapse` Host 检查额外允许的主机名或 `主机:端口`；`localhost` 和 `127.0.0.1` 始终允许 |
@@ -134,6 +135,7 @@ $DSH_HOME/synapse/
 
 - DSH session log 保存真实对话内容。
 - Synapse 的 `workspaces.json` 只保存画布元数据、布局和分支锚点。
+- 画布界面状态（文件夹、卡片位置、连线、隐藏/锁定卡片、快捷短语）在浏览器 `localStorage` 中同步缓存，并镜像到 `state.json`。因此换浏览器、换访问地址（`localhost` 与 `127.0.0.1` 属于不同站点）或清理站点数据后，布局仍会自动恢复；升级后第一个打开的浏览器会把自己的旧数据写入该文件，空状态的浏览器不会覆盖已有数据。
 - 删除 `workspaces.json` 会丢失画布布局，但不会删除 DSH 会话。
 - 单条消息投影上限为 8000 字符；超出部分在卡片中截断并标注“—…（详情查看全文）”，完整内容仍可在会话详情中查看。
 - 插件不启动第二个 Web 服务，也不创建第二套 Agent。

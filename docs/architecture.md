@@ -38,6 +38,8 @@ $DSH_HOME/synapse/workspaces.json
 
 The file contains organizational state such as workspace mapping, card layout, and fork anchors. It does not replace session logs.
 
+A second file, `$DSH_HOME/synapse/state.json`, mirrors the canvas UI state (the `dsh-synapse:*` keys: folders, card positions, edges, hidden/locked cards, quick phrases) through `/synapse/api/state`. Writes are debounced and only `dsh-synapse:*` keys are accepted.
+
 Consequences:
 
 - deleting the file resets canvas organization but does not delete conversations;
@@ -65,7 +67,9 @@ Legacy v3 migrations did not always have durable call IDs. Those records pair ea
 
 ## Browser-local state
 
-Some interaction state, such as dragged card positions and branch anchors, may be cached in browser local storage to keep the canvas responsive. Durable workspace metadata is still written through the Synapse service.
+Some interaction state, such as dragged card positions and branch anchors, is cached in browser local storage to keep the canvas responsive. Because that cache is bound to one browser and origin, Synapse also mirrors those `dsh-synapse:*` keys to `$DSH_HOME/synapse/state.json`.
+
+The file is the durable copy: the first browser to load after upgrading seeds it from its existing local storage, and any other browser adopts it on load. An empty browser never overwrites a populated file, and the client mirrors the server copy exactly so adopting it converges in a single reload.
 
 Private-browsing restrictions or local-storage failures must not prevent DSH conversations from operating; they only reduce persistence of visual preferences.
 
