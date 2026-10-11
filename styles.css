@@ -7,9 +7,9 @@ button:hover { border-color: #9ca3af; background: #f3f4f6; color: #111827; }
 button:disabled { cursor: not-allowed; opacity: .5; }
 button.primary { border-color: #111827; background: #111827; color: #fff; }
 button.primary:hover { border-color: #000; background: #000; color: #fff; }
-.synapse-shell { --sidebar-width: 280px; --sidebar-half: 140px; height: 100vh; display: grid; grid-template-columns: var(--sidebar-width) minmax(0, 1fr); grid-template-rows: 42px minmax(0, 1fr); overflow: hidden; }
+.synapse-shell { --sidebar-width: 280px; --sidebar-half: 140px; --card-h: 276px; height: 100vh; display: grid; grid-template-columns: var(--sidebar-width) minmax(0, 1fr); grid-template-rows: 0 minmax(0, 1fr); overflow: hidden; }
 .synapse-shell.sidebar-collapsed { --sidebar-width: 56px; --sidebar-half: 28px; }
-.topbar { position: relative; grid-column: 2; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 16px; border: 0; background: #fff; }
+.topbar { position: relative; grid-column: 2; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 16px; border: 0; background: transparent; }
 .brand, .top-actions, .view-switch, .thread-card-head, .thread-meta, .detail-actions, .compare-title { display: flex; align-items: center; }
 .sidebar-brand-row { box-sizing: border-box; display: flex; align-items: center; gap: 8px; height: 60px; flex: none; margin-bottom: 8px; padding: 8px 0 8px 4px; overflow: hidden; }
 .brand { gap: 8px; min-width: 0; flex: 1; }
@@ -97,7 +97,10 @@ button.primary:hover { border-color: #000; background: #000; color: #fff; }
 .connectors .draft-connector, .connectors .live-connector { stroke: #3478f6; stroke-dasharray: 5 4; pointer-events: none; }
 .cards-layer { position: absolute; inset: 0; pointer-events: none; }
 .cards-layer > * { pointer-events: auto; }
-.thread-card { position: absolute; display: grid; width: 310px; height: 276px; grid-template-rows: auto auto minmax(0, 1fr) auto; border: 1px solid #d8e0e8; border-radius: 7px; background: #fff; box-shadow: 0 3px 11px rgba(33,48,67,.08); overflow: visible; }
+.thread-card { position: absolute; display: grid; width: 310px; height: var(--card-h, 276px); grid-template-rows: auto auto minmax(0, 1fr) auto; border: 1px solid #d8e0e8; border-radius: 7px; background: #fff; box-shadow: 0 3px 11px rgba(33,48,67,.08); overflow: visible; }
+.synapse-shell.no-preview { --card-h: 122px; }
+.synapse-shell.no-preview .thread-card { grid-template-rows: auto auto 0 auto; }
+.synapse-shell.no-preview .thread-card .thread-answer { display: none; }
 .thread-card:hover { border-color: #9ca3af; box-shadow: 0 8px 20px rgba(33,48,67,.13); }
 .thread-card.selected { box-shadow: 0 0 0 2px rgba(17,24,39,.16), 0 8px 20px rgba(33,48,67,.13); }
 .thread-card.connect-target { border-color: #7c3aed; box-shadow: 0 0 0 2px rgba(124,58,237,.35), 0 8px 20px rgba(33,48,67,.15); }
@@ -181,7 +184,7 @@ button.primary:hover { border-color: #000; background: #000; color: #fff; }
 .card-inspector-resize { position: absolute; z-index: 3; top: 0; bottom: 0; left: -4px; width: 9px; cursor: ew-resize; }
 .card-inspector-resize::before { content: ''; position: absolute; top: 50%; left: 3px; width: 3px; height: 44px; transform: translateY(-50%); border-radius: 2px; background: #dbe3ec; transition: background .12s; }
 .card-inspector-resize:hover::before { background: #3478f6; }
-.card-inspector-head { display: grid; grid-template-columns: minmax(0, 1fr) 32px; gap: 12px; align-items: start; padding: 18px 20px 12px; background: #fff; }
+.card-inspector-head { display: grid; grid-template-columns: minmax(0, 1fr) 32px 32px; gap: 8px; align-items: start; padding: 18px 20px 12px; background: #fff; }
 .card-inspector-meta { display: flex; align-items: center; gap: 7px; color: #8390a0; font-size: 11px; }
 .card-inspector-meta span + span::before { content: '·'; margin-right: 7px; color: #bdc7d2; }
 .card-inspector-meta span:last-child { color: inherit; font-weight: inherit; }
@@ -189,6 +192,13 @@ button.primary:hover { border-color: #000; background: #000; color: #fff; }
 .card-inspector-head h2 { margin: 8px 0 0; overflow-wrap: anywhere; color: #172033; font-size: 15px; font-weight: 680; line-height: 1.5; }
 .card-inspector-close { display: grid; width: 32px; height: 32px; min-height: 32px; place-items: center; border: 0; border-radius: 50%; background: transparent; padding: 0; color: #718096; }
 .card-inspector-close:hover { background: #eef2f6; color: #1f2937; }
+.card-inspector-collapse { display: grid; width: 32px; height: 32px; min-height: 32px; place-items: center; border: 0; border-radius: 50%; background: transparent; padding: 0; color: #718096; }
+.card-inspector-collapse:hover { background: #eef2f6; color: #1f2937; }
+.card-inspector-collapse svg { width: 16px; height: 16px; fill: none; stroke: currentColor; }
+.card-inspector-rail { position: absolute; z-index: 30; top: 0; right: 0; bottom: 0; display: flex; width: 40px; flex-direction: column; align-items: center; justify-content: center; gap: 10px; border: 0; border-left: 1px solid #dbe3ec; background: #fff; color: #334155; cursor: pointer; padding: 0; }
+.card-inspector-rail:hover { background: #f5f7fa; }
+.card-inspector-rail span { writing-mode: vertical-rl; font-size: 12px; font-weight: 600; letter-spacing: 2px; }
+.card-inspector-rail em { font-style: normal; font-size: 10px; color: #94a3b8; }
 .card-inspector-close:active, .card-inspector-actions button:active { transform: scale(.97); }
 .card-inspector-close svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.7; }
 .card-inspector-scroll { display: flex; min-height: 0; flex: 1; flex-direction: column; overflow-y: auto; padding: 24px 20px 20px; overscroll-behavior: contain; }
@@ -337,7 +347,7 @@ button.primary:hover { border-color: #000; background: #000; color: #fff; }
 [data-theme="dark"] body { background: #0f1115; color: #e6e8eb; }
 [data-theme="dark"] .synapse-shell { background: #0f1115; }
 [data-theme="dark"] .sidebar { border-right-color: #26282d; background: #15171b; }
-[data-theme="dark"] .topbar { background: #15171b; }
+[data-theme="dark"] .topbar { background: transparent; }
 [data-theme="dark"] .main-stage { background: #0f1115; }
 [data-theme="dark"] .canvas-tabs { border-bottom-color: #26282d; background: #15171b; }
 [data-theme="dark"] .canvas-tabs button { color: #8f959e; }
@@ -411,6 +421,10 @@ button.primary:hover { border-color: #000; background: #000; color: #fff; }
 [data-theme="dark"] .card-inspector .process-records-fold:hover { color: #7ea6f5; }
 [data-theme="dark"] .card-inspector-close { color: #8f959e; }
 [data-theme="dark"] .card-inspector-close:hover { background: #26282d; color: #e6e8eb; }
+[data-theme="dark"] .card-inspector-collapse { color: #8f959e; }
+[data-theme="dark"] .card-inspector-collapse:hover { background: #26282d; color: #e6e8eb; }
+[data-theme="dark"] .card-inspector-rail { border-left-color: #2a2d33; background: #15171b; color: #d7dae0; }
+[data-theme="dark"] .card-inspector-rail:hover { background: #222428; }
 [data-theme="dark"] .card-inspector-actions button { border-color: #3a3f47; background: #222428; color: #c6cbd2; }
 [data-theme="dark"] .card-inspector-actions button:hover { border-color: #4a4f57; background: #26282d; color: #fff; }
 [data-theme="dark"] .card-inspector-actions .primary { border-color: #5b8def; background: #5b8def; color: #fff; }

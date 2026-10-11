@@ -246,8 +246,16 @@ const INSPECTOR_WIDTH_KEY = 'dsh-synapse:inspector-width'
 const savedInspectorWidth = (() => {
   try { const v = Number(localStorage.getItem(INSPECTOR_WIDTH_KEY)); return Number.isFinite(v) && v >= 240 ? Math.round(v) : 0 } catch { return 0 }
 })()
+// Whether the right-hand card detail panel is tucked away into a slim rail.
+const INSPECTOR_COLLAPSED_KEY = 'dsh-synapse:inspector-collapsed:v1'
+const savedInspectorCollapsed = (() => { try { return localStorage.getItem(INSPECTOR_COLLAPSED_KEY) === 'on' } catch { return false } })()
 const CARD_WIDTH = 310
-const CARD_HEIGHT = 276
+const FULL_CARD_H = 276
+// Compact card height when the on-canvas answer preview is switched off.
+const COMPACT_CARD_H = 122
+const CARD_PREVIEW_KEY = 'dsh-synapse:card-preview:v1'
+const savedCardPreview = (() => { try { return localStorage.getItem(CARD_PREVIEW_KEY) === 'on' } catch { return false } })()
+const cardHeight = () => state.cardPreview ? FULL_CARD_H : COMPACT_CARD_H
 const CARD_GAP_Y = 42
 const CAMERA_INSET_X = 56
 const CAMERA_INSET_Y = 56
@@ -256,7 +264,7 @@ const CAMERA_INSET_Y = 56
 // so panning never flashes empty space.
 const VIEWPORT_MARGIN = 1400
 const state = {
-  summaries: [], workspace: null, activeId: null, selectedCardId: null, mode: 'canvas', zoom: 1, currentDsh: null, sidebarCollapsed: false,
+  summaries: [], workspace: null, activeId: null, selectedCardId: null, mode: 'canvas', zoom: 1, currentDsh: null, sidebarCollapsed: false, cardPreview: savedCardPreview,
   dshWorkspaces: [], selectedDshWorkspaceId: null,
   historyBySession: new Map(), historyRequests: new Map(), pendingReplies: new Map(), pendingRpc: new Map(), liveReplies: new Map(),
   draft: null, error: '', workspaceLoad: 0, branchAnchors: new Map(savedBranchAnchors), cardPositions: new Map(savedCardPositions), collapsedCardIds: new Set(savedCollapsedCards), quickPhrases: savedQuickPhrases, quickPhraseEditorOpen: false,
@@ -272,7 +280,7 @@ const state = {
   canvasCards: undefined, canvasCardsById: undefined, canvasGraph: undefined, mountedCardIds: new Set(), canvasNeedsCenter: false, canvasNeedsFit: false, mapOpenedOnce: false,
   canvasFolders: [], canvasContext: [], canvasContextFolders: [], viewNodesById: new Map(), viewEdges: [],
   detailScrollByThread: new Map(), detailThreadId: null, detailTargetCardId: null,
-  inspectorCardId: null, inspectorOpening: false, inspectorScrollByCard: new Map(), inspectorWidth: savedInspectorWidth,
+  inspectorCardId: null, inspectorOpening: false, inspectorScrollByCard: new Map(), inspectorWidth: savedInspectorWidth, inspectorCollapsed: savedInspectorCollapsed,
   selectedCardIds: new Set(), selectedFolderIds: new Set(), hiddenPanelOpen: false,
 }
 
@@ -292,6 +300,14 @@ function persistCardPositions() {
 
 function persistInspectorWidth() {
   try { if (state.inspectorWidth > 0) localStorage.setItem(INSPECTOR_WIDTH_KEY, String(state.inspectorWidth)) } catch { /* Private browsing may disable local storage. */ }
+}
+
+function persistInspectorCollapsed() {
+  try { localStorage.setItem(INSPECTOR_COLLAPSED_KEY, state.inspectorCollapsed ? 'on' : 'off') } catch { /* Private browsing may disable local storage. */ }
+}
+
+function persistCardPreview() {
+  try { localStorage.setItem(CARD_PREVIEW_KEY, state.cardPreview ? 'on' : 'off') } catch { /* Private browsing may disable local storage. */ }
 }
 
 function persistEdges() {
@@ -1286,7 +1302,7 @@ function renderMarkdown(text) {
 
 function overlapsCard(position, other) {
   return position.x < other.x + CARD_WIDTH && position.x + CARD_WIDTH > other.x
-    && position.y < other.y + CARD_HEIGHT && position.y + CARD_HEIGHT > other.y
+    && position.y < other.y + cardHeight() && position.y + cardHeight() > other.y
 }
 
 function firstAvailableCardPosition(position, occupied) {
@@ -1294,15 +1310,15 @@ function firstAvailableCardPosition(position, occupied) {
   while (true) {
     const collisions = occupied.filter(other => overlapsCard(candidate, other))
     if (collisions.length === 0) return candidate
-    candidate.y = Math.max(...collisions.map(other => other.y + CARD_HEIGHT + CARD_GAP_Y))
+    candidate.y = Math.max(...collisions.map(other => other.y + cardHeight() + CARD_GAP_Y))
   }
 }
 
 function connectorPath(fromPosition, toPosition) {
   const fromX = fromPosition.x + CARD_WIDTH
-  const fromY = fromPosition.y + CARD_HEIGHT / 2
+  const fromY = fromPosition.y + cardHeight() / 2
   const toX = toPosition.x
-  const toY = toPosition.y + CARD_HEIGHT / 2
+  const toY = toPosition.y + cardHeight() / 2
   const bend = Math.min(110, Math.max(36, Math.abs(toX - fromX) * .2))
   return `M ${fromX} ${fromY} C ${fromX + bend} ${fromY}, ${toX - bend} ${toY}, ${toX} ${toY}`
 }
@@ -1310,7 +1326,7 @@ function connectorPath(fromPosition, toPosition) {
 // Preview curve while dragging a new link out of a card's bottom port.
 function connectorPathToPoint(fromPosition, point, side = 'right') {
   const fromX = side === 'left' ? fromPosition.x : fromPosition.x + CARD_WIDTH
-  const fromY = fromPosition.y + CARD_HEIGHT / 2
+  const fromY = fromPosition.y + cardHeight() / 2
   const bend = Math.min(120, Math.max(40, Math.abs(point.x - fromX) * .25))
   const c1x = side === 'left' ? fromX - bend : fromX + bend
   return `M ${fromX} ${fromY} C ${c1x} ${fromY}, ${point.x} ${point.y}, ${point.x} ${point.y}`
@@ -1319,9 +1335,9 @@ function connectorPathToPoint(fromPosition, point, side = 'right') {
 // Link path between a chosen side of the source and a chosen side of the target.
 function connectorPathSides(fromPosition, fromSide, toPosition, toSide) {
   const fromX = fromSide === 'left' ? fromPosition.x : fromPosition.x + CARD_WIDTH
-  const fromY = fromPosition.y + CARD_HEIGHT / 2
+  const fromY = fromPosition.y + cardHeight() / 2
   const toX = toSide === 'left' ? toPosition.x : toPosition.x + CARD_WIDTH
-  const toY = toPosition.y + CARD_HEIGHT / 2
+  const toY = toPosition.y + cardHeight() / 2
   const bend = Math.min(110, Math.max(36, Math.abs(toX - fromX) * .2))
   const c1x = fromSide === 'left' ? fromX - bend : fromX + bend
   const c2x = toSide === 'left' ? toX - bend : toX + bend
@@ -1330,9 +1346,9 @@ function connectorPathSides(fromPosition, fromSide, toPosition, toSide) {
 
 function connectorPathFromElements(fromCard, toCard) {
   const fromX = Number.parseFloat(fromCard.style.left) + CARD_WIDTH
-  const fromY = Number.parseFloat(fromCard.style.top) + CARD_HEIGHT / 2
+  const fromY = Number.parseFloat(fromCard.style.top) + cardHeight() / 2
   const toX = Number.parseFloat(toCard.style.left)
-  const toY = Number.parseFloat(toCard.style.top) + CARD_HEIGHT / 2
+  const toY = Number.parseFloat(toCard.style.top) + cardHeight() / 2
   if (![fromX, fromY, toX, toY].every(Number.isFinite)) return null
   const bend = Math.min(110, Math.max(36, Math.abs(toX - fromX) * .2))
   return `M ${fromX} ${fromY} C ${fromX + bend} ${fromY}, ${toX - bend} ${toY}, ${toX} ${toY}`
@@ -1414,47 +1430,44 @@ function placeConversationCards(cards) {
   return cards
 }
 
-// 一键整理: locked cards move as ONE rigid block (their relative layout is
-// preserved) shifted to the spot the tree layout wants, and unlocked cards
-// re-flow around it. Nothing overlaps: the block is placed first and every
-// other card is packed with firstAvailableCardPosition against it.
-function layoutConversationGraph(cards, threads) {
-  const childrenByThread = new Map()
-  for (const thread of threads) {
-    if (thread.parentId === null) continue
-    const children = childrenByThread.get(thread.parentId) ?? []
-    children.push(thread.id)
-    childrenByThread.set(thread.parentId, children)
-  }
-  const laneByThread = new Map()
-  const visitThread = threadId => {
-    if (laneByThread.has(threadId)) return
-    laneByThread.set(threadId, laneByThread.size)
-    for (const childId of childrenByThread.get(threadId) ?? []) visitThread(childId)
-  }
-  for (const thread of threads) if (thread.parentId === null) visitThread(thread.id)
-  for (const thread of threads) visitThread(thread.id)
-
+// Downward tree layout: every card sits directly below the previous turn of
+// its own session, and a branch forked off a card indents one level beneath it,
+// so the whole conversation reads top-to-bottom with nested branches.
+function layoutConversationGraph(cards) {
   const byId = new Map(cards.map(card => [card.id, card]))
-  const positioned = new Map()
-  const positionFor = (card, visiting = new Set()) => {
-    if (positioned.has(card.id)) return positioned.get(card.id)
-    if (visiting.has(card.id)) return { x: 86, y: 82 + (laneByThread.get(card.dshThreadId) ?? 0) * (CARD_HEIGHT + CARD_GAP_Y) }
-    visiting.add(card.id)
-    const parent = card.parentId === null ? undefined : byId.get(card.parentId)
-    const parentPosition = parent === undefined ? undefined : positionFor(parent, visiting)
-    const position = {
-      x: parentPosition === undefined ? 86 : parentPosition.x + 365,
-      y: 82 + (laneByThread.get(card.dshThreadId) ?? 0) * (CARD_HEIGHT + CARD_GAP_Y),
-    }
-    visiting.delete(card.id)
-    positioned.set(card.id, position)
-    return position
-  }
+  const childrenByParent = new Map()
+  const roots = []
   for (const card of cards) {
-    card.naturalPosition = positionFor(card)
-    if (!card.positionLocked) card.position = card.naturalPosition
+    const parent = card.parentId === null || card.parentId === undefined ? undefined : byId.get(card.parentId)
+    if (parent === undefined) {
+      roots.push(card)
+      continue
+    }
+    const siblings = childrenByParent.get(parent.id)
+    if (siblings === undefined) childrenByParent.set(parent.id, [card])
+    else siblings.push(card)
   }
+  const INDENT_X = 52
+  const START_X = 86
+  const START_Y = 82
+  let cursorY = START_Y
+  const placed = new Set()
+  const place = (card, depth) => {
+    if (placed.has(card.id)) return
+    placed.add(card.id)
+    card.naturalPosition = { x: START_X + depth * INDENT_X, y: cursorY }
+    cursorY += cardHeight() + CARD_GAP_Y
+    const siblings = childrenByParent.get(card.id)
+    if (siblings === undefined) return
+    // The next turn of the SAME session keeps this depth (straight down); every
+    // other child is a branch forked off this card, indented one level.
+    const continuation = siblings.find(child => child.dshThreadId === card.dshThreadId)
+    if (continuation !== undefined) place(continuation, depth)
+    for (const child of siblings) if (child !== continuation) place(child, depth + 1)
+  }
+  for (const root of roots) place(root, 0)
+  for (const card of cards) place(card, 0)
+  for (const card of cards) if (card.positionLocked !== true) card.position = card.naturalPosition
   return placeConversationCards(cards)
 }
 
@@ -1552,7 +1565,7 @@ function conversationCards(threads) {
       card.parentId = state.branchAnchors.get(card.dshThreadId) ?? inheritedTurn?.id ?? null
     }
   }
-  return layoutConversationGraph(cards, threads)
+  return layoutConversationGraph(cards)
 }
 
 function conversationGraphView(cards, collapsedCardIds = state.collapsedCardIds) {
@@ -1701,7 +1714,7 @@ function buildObsidianCanvas() {
     x: card.position.x,
     y: card.position.y,
     width: CARD_WIDTH,
-    height: CARD_HEIGHT,
+    height: cardHeight(),
   }))
   const edges = []
   for (const edge of conversationEdges(cards)) {
@@ -1733,9 +1746,9 @@ function buildObsidianCanvasForView(viewFolderId) {
   const folders = childFoldersOf(viewFolderId)
   if (owned.length === 0 && folders.length === 0) return null
   const nodeIdByCard = new Map(owned.map((card, index) => [card.id, `n${index}`]))
-  const nodes = owned.map(card => ({ id: nodeIdByCard.get(card.id), type: 'text', text: canvasNodeText(card), x: card.position.x, y: card.position.y, width: CARD_WIDTH, height: CARD_HEIGHT }))
+  const nodes = owned.map(card => ({ id: nodeIdByCard.get(card.id), type: 'text', text: canvasNodeText(card), x: card.position.x, y: card.position.y, width: CARD_WIDTH, height: cardHeight() }))
   for (const folder of folders) {
-    nodes.push({ id: `f:${folder.id}`, type: 'text', text: `📁 ${folder.name}\n（${state.folderCards.get(folder.id)?.size ?? 0} 张卡片）`, x: folder.position.x, y: folder.position.y, width: CARD_WIDTH, height: CARD_HEIGHT })
+    nodes.push({ id: `f:${folder.id}`, type: 'text', text: `📁 ${folder.name}\n（${state.folderCards.get(folder.id)?.size ?? 0} 张卡片）`, x: folder.position.x, y: folder.position.y, width: CARD_WIDTH, height: cardHeight() })
   }
   const idSet = new Set(owned.map(card => card.id))
   const edges = []
@@ -1892,7 +1905,7 @@ function updateQuickPhrase(index, value) {
 // the card is never shoved far away).
 function besideCardPosition(anchor, occupied) {
   const stepX = CARD_WIDTH + 55
-  const stepY = CARD_HEIGHT + CARD_GAP_Y
+  const stepY = cardHeight() + CARD_GAP_Y
   const free = (x, y) => !occupied.some(other => overlapsCard({ x, y }, other))
   const candidates = []
   for (let dx = -8; dx <= 8; dx++) {
@@ -1954,7 +1967,7 @@ function visibleCardIds(cards) {
   const visible = new Set()
   for (const card of cards) {
     const { x, y } = card.position
-    if (x + CARD_WIDTH < left || x > right || y + CARD_HEIGHT < top || y > bottom) continue
+    if (x + CARD_WIDTH < left || x > right || y + cardHeight() < top || y > bottom) continue
     visible.add(card.id)
   }
   return visible
@@ -2092,7 +2105,7 @@ function renderCanvas() {
   const visible = visibleCardIds(owned)
   state.mountedCardIds = new Set(visible)
   const mounted = owned.filter(card => visible.has(card.id))
-  const inspector = state.inspectorCardId === null ? '' : renderCardInspector(state.canvasCardsById.get(state.inspectorCardId))
+  const inspector = state.inspectorCardId === null ? '' : state.inspectorCollapsed ? renderInspectorRail() : renderCardInspector(state.canvasCardsById.get(state.inspectorCardId))
   const layer = [
     ...mounted.map(card => conversationCard(card, graph)),
     ...folders.map(folder => folderCardHtml(folder)),
@@ -2224,6 +2237,11 @@ function inspectorProcessEntries(messages) {
   return entries
 }
 
+function renderInspectorRail() {
+  const card = state.canvasCardsById.get(state.inspectorCardId)
+  return `<button class="card-inspector-rail" type="button" data-action="expand-inspector" aria-label="展开卡片详情" title="展开卡片详情"><span>卡片详情</span>${card === undefined ? '' : `<em>第 ${card.turnIndex + 1} 轮</em>`}</button>`
+}
+
 function renderCardInspector(card) {
   if (card === undefined) return ''
   const { thread, messages } = messagesForCard(card)
@@ -2239,7 +2257,7 @@ function renderCardInspector(card) {
     ? `<button type="button" data-action="open-branch" data-thread="${thread.id}" data-card="${escapeHtml(card.id)}" data-seq="${card.answer.sourceSeq}"><svg aria-hidden="true" viewBox="0 0 16 16"><circle cx="4" cy="3.5" r="1.5"/><circle cx="12" cy="3.5" r="1.5"/><circle cx="12" cy="12.5" r="1.5"/><path d="M5.5 3.5h2A2.5 2.5 0 0 1 10 6v5"/></svg>创建分支</button>`
     : ''
   const openDshAction = `<button class="primary" type="button" data-action="open-dsh" data-thread="${thread.id}" data-seq="${Number.isInteger(card.answer?.sourceSeq) ? card.answer.sourceSeq : ''}"><svg aria-hidden="true" viewBox="0 0 16 16"><path d="M7 3.5H4.5A1.5 1.5 0 0 0 3 5v6.5A1.5 1.5 0 0 0 4.5 13H11a1.5 1.5 0 0 0 1.5-1.5V9"/><path d="M9.5 3.5h3v3M12.4 3.6 7.5 8.5"/></svg>在 DSH 中打开</button>`
-  return `<aside class="card-inspector${state.inspectorOpening ? ' is-opening' : ''}" aria-label="卡片详情" data-inspector-card="${escapeHtml(card.id)}"${state.inspectorWidth > 0 ? ` style="width:${state.inspectorWidth}px"` : ''}><div class="card-inspector-resize" data-resize-inspector title="拖动调整宽度"></div><header class="card-inspector-head"><div><div class="card-inspector-meta"><span>第 ${card.turnIndex + 1} 轮</span>${card.error === null ? '' : '<span class="card-inspector-error-status">失败</span>'}${process.length > 0 ? `<span>工具 ${process.length}</span>` : ''}</div><h2>${escapeHtml(card.question)}</h2></div><button class="card-inspector-close" type="button" data-action="close-card-inspector" aria-label="关闭卡片详情" title="关闭"><svg aria-hidden="true" viewBox="0 0 16 16"><path d="m4.5 4.5 7 7m0-7-7 7"/></svg></button></header><div class="card-inspector-scroll">${error}${answer}${processRecordsHtml}</div><footer class="card-inspector-actions">${continueAction}${branch}${openDshAction}</footer></aside>`
+  return `<aside class="card-inspector${state.inspectorOpening ? ' is-opening' : ''}" aria-label="卡片详情" data-inspector-card="${escapeHtml(card.id)}"${state.inspectorWidth > 0 ? ` style="width:${state.inspectorWidth}px"` : ''}><div class="card-inspector-resize" data-resize-inspector title="拖动调整宽度"></div><header class="card-inspector-head"><div><div class="card-inspector-meta"><span>第 ${card.turnIndex + 1} 轮</span>${card.error === null ? '' : '<span class="card-inspector-error-status">失败</span>'}${process.length > 0 ? `<span>工具 ${process.length}</span>` : ''}</div><h2>${escapeHtml(card.question)}</h2></div><button class="card-inspector-collapse" type="button" data-action="collapse-inspector" aria-label="收起卡片详情" title="收起"><svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 4 5.5 8l4 4"/></svg></button><button class="card-inspector-close" type="button" data-action="close-card-inspector" aria-label="关闭卡片详情" title="关闭"><svg aria-hidden="true" viewBox="0 0 16 16"><path d="m4.5 4.5 7 7m0-7-7 7"/></svg></button></header><div class="card-inspector-scroll">${error}${answer}${processRecordsHtml}</div><footer class="card-inspector-actions">${continueAction}${branch}${openDshAction}</footer></aside>`
 }
 
 function renderThread() {
@@ -2284,13 +2302,11 @@ function render() {
   const view = state.mode === 'thread' ? renderThread() : renderCanvas()
   const choices = workspaceChoices()
   const selectedWorkspaceId = state.selectedDshWorkspaceId ?? workspace?.id
-  const canvasControls = state.mode === 'canvas' && (threads.length > 0 || state.draft?.kind === 'new') ? `<div class="canvas-controls"><button data-action="undo" title="撤销 (Ctrl+Z)" aria-label="撤销" ${canvasHistory.past.length === 0 ? 'disabled' : ''}><svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 4.5 3 8l3.5 3.5"/><path d="M3 8h6.5a3.5 3.5 0 0 1 0 7H7"/></svg></button><button data-action="redo" title="重做 (Ctrl+Y)" aria-label="重做" ${canvasHistory.future.length === 0 ? 'disabled' : ''}><svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 4.5 13 8l-3.5 3.5"/><path d="M13 8H6.5a3.5 3.5 0 0 0 0 7H9"/></svg></button><button data-action="toggle-hidden" class="${state.hiddenPanelOpen ? 'active' : ''}" title="已隐藏卡片" ${state.hiddenCards.size === 0 ? 'hidden' : ''}>已隐藏 ${state.hiddenCards.size}</button><button data-action="export-canvas" title="导出 Obsidian Canvas">导出</button><button data-action="focus-active" title="定位到当前会话" aria-label="定位到当前会话"><svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><circle cx="8" cy="8" r="3.2"/><path d="M8 1.5v2.6M8 11.9v2.6M1.5 8h2.6M11.9 8h2.6"/></svg>定位</button><button data-action="zoom-out" aria-label="缩小" title="缩小"><svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M3.5 8h9"/></svg></button><span>${Math.round(state.zoom * 100)}%</span><button data-action="zoom-in" aria-label="放大" title="放大"><svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M8 3.5v9M3.5 8h9"/></svg></button></div>` : ''
-  const detailAvailable = currentThread() !== null
-  const canvasTabs = `<nav class="canvas-tabs" aria-label="会话地图视图"><button class="${state.mode === 'canvas' ? 'active' : ''}" data-action="show-canvas">地图</button><button class="${state.mode === 'thread' ? 'active' : ''}" data-action="show-thread" data-thread="${state.activeId ?? ''}" ${detailAvailable ? '' : 'disabled'}>详情</button></nav>`
+  const canvasControls = state.mode === 'canvas' && (threads.length > 0 || state.draft?.kind === 'new') ? `<div class="canvas-controls"><button data-action="undo" title="撤销 (Ctrl+Z)" aria-label="撤销" ${canvasHistory.past.length === 0 ? 'disabled' : ''}><svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 4.5 3 8l3.5 3.5"/><path d="M3 8h6.5a3.5 3.5 0 0 1 0 7H7"/></svg></button><button data-action="redo" title="重做 (Ctrl+Y)" aria-label="重做" ${canvasHistory.future.length === 0 ? 'disabled' : ''}><svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 4.5 13 8l-3.5 3.5"/><path d="M13 8H6.5a3.5 3.5 0 0 0 0 7H9"/></svg></button><button data-action="toggle-hidden" class="${state.hiddenPanelOpen ? 'active' : ''}" title="已隐藏卡片" ${state.hiddenCards.size === 0 ? 'hidden' : ''}>已隐藏 ${state.hiddenCards.size}</button><button data-action="export-canvas" title="导出 Obsidian Canvas">导出</button><button data-action="toggle-card-preview" class="${state.cardPreview ? 'active' : ''}" title="显示/隐藏卡片上的预览文字">预览</button><button data-action="focus-active" title="定位到当前会话" aria-label="定位到当前会话"><svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><circle cx="8" cy="8" r="3.2"/><path d="M8 1.5v2.6M8 11.9v2.6M1.5 8h2.6M11.9 8h2.6"/></svg>定位</button><button data-action="zoom-out" aria-label="缩小" title="缩小"><svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M3.5 8h9"/></svg></button><span>${Math.round(state.zoom * 100)}%</span><button data-action="zoom-in" aria-label="放大" title="放大"><svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M8 3.5v9M3.5 8h9"/></svg></button></div>` : ''
   const folderTree = childFoldersOf(null).length === 0 ? '' : `<div class="sidebar-heading"><span>文件夹</span></div><nav class="folder-tree">${folderTreeHtml(null, 0)}</nav>`
   const hiddenEntries = [...state.hiddenCards.entries()]
   const hiddenSection = hiddenEntries.length === 0 || state.sidebarCollapsed ? '' : `<div class="sidebar-heading hidden-heading"><span>已隐藏卡片</span><span class="hidden-count">${hiddenEntries.length}</span></div><nav class="hidden-list">${hiddenEntries.map(([id, info]) => `<div class="hidden-row"><span title="${escapeHtml(info.question)}">${escapeHtml(info.question || '未命名卡片')}</span><button type="button" data-action="restore-card" data-card="${escapeHtml(id)}">恢复</button></div>`).join('')}</nav>`
-  app.innerHTML = `<main class="synapse-shell ${state.sidebarCollapsed ? 'sidebar-collapsed' : ''}"><aside class="sidebar"><div class="sidebar-brand-row"><div class="brand" aria-label="Synapse"><svg class="brand-mark" aria-hidden="true" viewBox="0 0 32 32" fill="none"><path d="M9 10.5 16 7l7 3.5M9 10.5v8L16 22m0-15v15m7-11.5v8L16 22"/><circle cx="9" cy="10" r="2.5"/><circle cx="23" cy="10" r="2.5"/><circle cx="16" cy="23" r="2.5"/></svg><strong>Synapse</strong></div><button class="sidebar-toggle" type="button" data-action="toggle-sidebar" aria-label="${state.sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}" title="${state.sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.75" y="1.75" width="12.5" height="12.5" rx="2.25"/><path d="M6 2v12"/></svg></button></div><button class="new-workspace" type="button" data-action="create-session" ${state.draft !== null ? 'disabled' : ''}><svg class="new-session-icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.25"/><path d="M8 4.75v6.5M4.75 8h6.5"/></svg><span>新会话</span></button><label class="workspace-label"><span>工作区</span><span class="workspace-select"><svg aria-hidden="true" viewBox="0 0 16 16"><path d="M2.5 4.75h3l1.2 1.5h6.8v5.5a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1Z"/></svg><select data-action="select-workspace" aria-label="选择工作区" ${state.draft !== null ? 'disabled' : ''}>${choices.map(item => `<option value="${item.id}" title="${escapeHtml(item.path ?? item.title)}" ${item.id === selectedWorkspaceId ? 'selected' : ''}>${escapeHtml(item.title)}</option>`).join('')}</select></span></label>${folderTree}${hiddenSection}</aside><header class="topbar"><div class="view-switch" role="group" aria-label="视图切换"><button data-action="close" type="button" aria-pressed="false">对话</button><button class="active" type="button" aria-pressed="true">会话地图</button></div>${canvasControls}</header><section class="main-stage">${state.error ? `<div class="status-message" role="alert"><span>${escapeHtml(state.error)}</span><button data-action="dismiss-error" aria-label="关闭" title="关闭">×</button></div>` : ''}${canvasTabs}${view}${selectionFollowupButton()}</section></main>`
+  app.innerHTML = `<main class="synapse-shell ${state.sidebarCollapsed ? 'sidebar-collapsed' : ''}${state.cardPreview ? '' : ' no-preview'}"><aside class="sidebar"><div class="sidebar-brand-row"><div class="brand" aria-label="Synapse"><svg class="brand-mark" aria-hidden="true" viewBox="0 0 32 32" fill="none"><path d="M9 10.5 16 7l7 3.5M9 10.5v8L16 22m0-15v15m7-11.5v8L16 22"/><circle cx="9" cy="10" r="2.5"/><circle cx="23" cy="10" r="2.5"/><circle cx="16" cy="23" r="2.5"/></svg><strong>Synapse</strong></div><button class="sidebar-toggle" type="button" data-action="toggle-sidebar" aria-label="${state.sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}" title="${state.sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.75" y="1.75" width="12.5" height="12.5" rx="2.25"/><path d="M6 2v12"/></svg></button></div><button class="new-workspace" type="button" data-action="create-session" ${state.draft !== null ? 'disabled' : ''}><svg class="new-session-icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.25"/><path d="M8 4.75v6.5M4.75 8h6.5"/></svg><span>新会话</span></button><label class="workspace-label"><span>工作区</span><span class="workspace-select"><svg aria-hidden="true" viewBox="0 0 16 16"><path d="M2.5 4.75h3l1.2 1.5h6.8v5.5a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1Z"/></svg><select data-action="select-workspace" aria-label="选择工作区" ${state.draft !== null ? 'disabled' : ''}>${choices.map(item => `<option value="${item.id}" title="${escapeHtml(item.path ?? item.title)}" ${item.id === selectedWorkspaceId ? 'selected' : ''}>${escapeHtml(item.title)}</option>`).join('')}</select></span></label>${folderTree}${hiddenSection}</aside><header class="topbar"><div class="view-switch" role="group" aria-label="视图切换"><button data-action="close" type="button" aria-pressed="false">对话</button><button class="active" type="button" aria-pressed="true">会话地图</button></div>${canvasControls}</header><section class="main-stage">${state.error ? `<div class="status-message" role="alert"><span>${escapeHtml(state.error)}</span><button data-action="dismiss-error" aria-label="关闭" title="关闭">×</button></div>` : ''}${view}${selectionFollowupButton()}</section></main>`
   installDragging()
   applyShortcutTitles()
   cacheCardConnectors()
@@ -2803,7 +2819,7 @@ function fitCanvasToItems() {
   const minX = Math.min(...points.map(p => p.x))
   const minY = Math.min(...points.map(p => p.y))
   const maxX = Math.max(...points.map(p => p.x + CARD_WIDTH))
-  const maxY = Math.max(...points.map(p => p.y + CARD_HEIGHT))
+  const maxY = Math.max(...points.map(p => p.y + cardHeight()))
   const bounds = viewport.getBoundingClientRect()
   const padX = 40
   const padTop = state.viewFolderId !== null ? 56 : 40
@@ -2841,7 +2857,7 @@ function focusActiveCard() {
   const bounds = viewport.getBoundingClientRect()
   state.canvasCamera = {
     x: bounds.width / 2 - (left + CARD_WIDTH / 2) * state.zoom,
-    y: bounds.height / 2 - (top + CARD_HEIGHT / 2) * state.zoom,
+    y: bounds.height / 2 - (top + cardHeight() / 2) * state.zoom,
   }
   applyCanvasTransform()
   syncCanvasViewport()
@@ -2945,7 +2961,7 @@ function cardsInRect(rect) {
   for (const card of state.canvasCards ?? []) {
     const { x, y } = card.position
     if (x + CARD_WIDTH < rect.x || x > rect.x + rect.width) continue
-    if (y + CARD_HEIGHT < rect.y || y > rect.y + rect.height) continue
+    if (y + cardHeight() < rect.y || y > rect.y + rect.height) continue
     ids.add(card.id)
   }
   return ids
@@ -2956,7 +2972,7 @@ function foldersInRect(rect) {
   for (const folder of state.canvasFolders ?? []) {
     const { x, y } = folder.position
     if (x + CARD_WIDTH < rect.x || x > rect.x + rect.width) continue
-    if (y + CARD_HEIGHT < rect.y || y > rect.y + rect.height) continue
+    if (y + cardHeight() < rect.y || y > rect.y + rect.height) continue
     ids.add(folder.id)
   }
   return ids
@@ -3234,6 +3250,8 @@ app.addEventListener('click', async event => {
     }
     if (button.dataset.action === 'close') post('synapse:close')
     if (button.dataset.action === 'close-card-inspector') { closeCardInspector(); return }
+    if (button.dataset.action === 'collapse-inspector') { state.inspectorCollapsed = true; persistInspectorCollapsed(); render(); return }
+    if (button.dataset.action === 'expand-inspector') { state.inspectorCollapsed = false; persistInspectorCollapsed(); render(); return }
     if (button.dataset.action === 'toggle-sidebar') { state.sidebarCollapsed = !state.sidebarCollapsed; render() }
     if (button.dataset.action === 'create-session') openNewSession()
     if (button.dataset.action === 'open-current' && state.currentDsh !== null) post('synapse:open-session', { sessionId: state.currentDsh.id })
@@ -3290,6 +3308,7 @@ app.addEventListener('click', async event => {
     if (button.dataset.action === 'hide-card' && button.dataset.card !== undefined) hideCard(button.dataset.card)
     if (button.dataset.action === 'restore-card' && button.dataset.card !== undefined) restoreCard(button.dataset.card)
     if (button.dataset.action === 'toggle-hidden') { state.hiddenPanelOpen = !state.hiddenPanelOpen; render(); return }
+    if (button.dataset.action === 'toggle-card-preview') { state.cardPreview = !state.cardPreview; persistCardPreview(); render(); return }
     if (button.dataset.action === 'close-hidden') { state.hiddenPanelOpen = false; render(); return }
     if (button.dataset.action === 'zoom-in') zoomCanvasAtCenter(1.15)
     if (button.dataset.action === 'zoom-out') zoomCanvasAtCenter(1 / 1.15)
